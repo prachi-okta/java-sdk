@@ -228,6 +228,25 @@ public class HttpServletSseServerTransportProvider extends HttpServlet implement
 			.then();
 	}
 
+	@Override
+	public Mono<Void> notifyClient(String sessionId, String method, Object params) {
+		return Mono.defer(() -> {
+			// Need to iterate in O(n) because the transport session id
+			// is different from the server-logical session id (in streamable http this
+			// design issue was solved)
+			McpServerSession session = sessions.values()
+				.stream()
+				.filter(s -> sessionId.equals(s.getId()))
+				.findFirst()
+				.orElse(null);
+			if (session == null) {
+				logger.debug("Session {} not found", sessionId);
+				return Mono.empty();
+			}
+			return session.sendNotification(method, params);
+		});
+	}
+
 	/**
 	 * Handles GET requests to establish SSE connections.
 	 * <p>
@@ -267,7 +286,6 @@ public class HttpServletSseServerTransportProvider extends HttpServlet implement
 		response.setCharacterEncoding(UTF_8);
 		response.setHeader("Cache-Control", "no-cache");
 		response.setHeader("Connection", "keep-alive");
-		response.setHeader("Access-Control-Allow-Origin", "*");
 
 		String sessionId = UUID.randomUUID().toString();
 		AsyncContext asyncContext = request.startAsync();
